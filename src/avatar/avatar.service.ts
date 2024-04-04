@@ -5,6 +5,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Avatar, AvatarDocument } from './schemas/avatar.schema';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import * as util from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -16,40 +17,19 @@ export class AvatarService {
   ) {}
 
   async getAvatar(userId: string): Promise<string> {
-    try {
-      const avatar = await this.avatarModel.findOne({ userId }).exec();
+    let existingAvatar = await this.avatarModel.findOne({ userId });
 
-      if (avatar) {
-        return avatar.image;
-      } else {
-        const avatarUrl = `https://reqres.in/img/faces/${userId}-image.jpg`;
-        const response = await axios.get(avatarUrl, {
-          responseType: 'arraybuffer',
-        });
+    if (!existingAvatar) {
+      // If avatar does not exist in database, fetch and save the image
+      const imageData = await this.fetchAndSaveImage(userId);
+      const hash = crypto.createHash('sha256').update(imageData).digest('hex');
 
-        const imageBuffer = Buffer.from(response.data, 'binary');
-        const base64Image = imageBuffer.toString('base64');
-
-        const hash = crypto
-          .createHash('sha1')
-          .update(base64Image)
-          .digest('hex');
-
-        const newAvatar = new this.avatarModel({
-          userId,
-          hash,
-          image: base64Image,
-        });
-        await newAvatar.save();
-
-        return base64Image;
-      }
-    } catch (error) {
-      throw new HttpException(
-        'Failed to process avatar',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      // Save the avatar metadata to the database
+      existingAvatar = await this.avatarModel.create({ userId, hash });
     }
+
+    // Return base64 encoded image data
+    return existingAvatar.image;
   }
 
   async deleteAvatar(userId: string): Promise<string> {
@@ -71,6 +51,27 @@ export class AvatarService {
       return `Avatar for user ${userId} deleted successfully.`;
     } else {
       return `Avatar for user ${userId} not found.`;
+    }
+  }
+
+  private async fetchAndSaveImage(userId: string): Promise<Buffer> {
+    const url = `https://reqres.in/img/faces/${userId}-image.jpg`;
+
+    try {
+      // Fetch avatar image data
+      const response = await axios.get(url, { responseType: 'arraybuffer' });
+      const imageData = Buffer.from(response.data, 'binary');
+      // Save avatar image to the filesystem
+      const writeFileAsync = util.promisify(fs.writeFile);
+      const fileName = `${userId}.jpg`;
+      await writeFileAsync(fileName, imageData);
+      return imageData;
+    } catch (error) {
+      console.error('Failed to fetch and save image:', error);
+      throw new HttpException(
+        'Failed to fetch and save image',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

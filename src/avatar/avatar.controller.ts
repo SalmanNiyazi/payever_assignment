@@ -13,7 +13,7 @@ import { AvatarService } from './avatar.service';
 export class AvatarController {
   constructor(private readonly avatarService: AvatarService) {}
 
-  @Get(':userId')
+  @Get()
   async getAvatar(@Param('userId') userId: string): Promise<string> {
     try {
       const avatar = await this.avatarService.getAvatar(userId);
